@@ -1,0 +1,230 @@
+---
+title: "DA341_project"
+topic: "Climate Change: Earth surface temperature data"
+author: "Rishita Agarwal, Varakala Rajasree, Yoga Venkata Sai Charan Boddapati"
+date: "2024-11-08"
+output: pdf_document
+---
+
+# Introduction
+
+This project provides an analysis of global land temperatures by city, with a focus on Århus, Denmark. The analysis includes data cleaning, exploratory data analysis, time series decomposition, and forecasting using ARIMA and ETS models. Models are used to see their performance for this data distribution
+
+# Setup
+
+## Load Necessary Packages
+```{r}
+options(repos = c(CRAN = "https://cran.rstudio.com"))
+```
+
+```{r setup}
+install.packages("fpp3")
+install.packages("forecast")
+library(tsibble)
+library(fpp3)
+library(ggplot2)
+library(forecast)
+library(zoo)  # for na.approx
+```
+
+```{r}
+install.packages("readr")
+library(readr)
+```
+
+# Read the data
+
+```{r}
+climate_data <- read_csv("./GlobalLandTemperaturesByCity.csv")  
+```
+
+```{r}
+climate_data
+```
+
+# Data Cleaning
+
+### Handling NA values
+
+Replace NA values with the mean of non-NA values for each city-country pair.
+
+```{r}
+climate_data <- climate_data %>%
+  group_by(City, Country) %>%
+  mutate(
+    AverageTemperature = if_else(is.na(AverageTemperature), mean(AverageTemperature, na.rm = TRUE), AverageTemperature),
+    AverageTemperatureUncertainty = if_else(is.na(AverageTemperatureUncertainty), mean(AverageTemperatureUncertainty, na.rm = TRUE), AverageTemperatureUncertainty)
+  ) %>%
+  ungroup()
+```
+
+**Create a Tsibble for Time Series Analysis and Group by date, city, country, latitude, and longitude to handle different geographical coordinates**
+
+```{r}
+climate_tsibble <- climate_data %>%
+  group_by(dt, City, Country, Latitude, Longitude) %>%
+  summarise(
+    AverageTemperature = mean(AverageTemperature, na.rm = TRUE),
+    AverageTemperatureUncertainty = mean(AverageTemperatureUncertainty, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  as_tsibble(index = dt, key = c("City", "Country", "Latitude", "Longitude"))
+
+climate_data # with replaced null values
+```
+
+**Check for any duplicates that might still exist**
+
+```{r}
+duplicates <- climate_tsibble %>%
+  count(dt, City, Country, Latitude, Longitude) %>%
+  filter(n > 1)
+
+if (nrow(duplicates) > 0) {
+  print("Duplicates exist, need further resolution")
+} else {
+  print(climate_tsibble)
+}
+```
+
+### Observations
+
+1.  We can see that the **index variable** is "dt" (date), which is representing the day wise data.
+2.  City, Country, Latitude, Longitude are **key variables**, which uniquely represents each row in the data.
+3.  AverageTemperature and AverageTemperatureUncertainty are the **measured variables** in the tsibble.
+4.  There are **3510** time series in the above data. \# 5. **8,599,212** rows and **7** columns in the tsibble.
+
+# Plotting the data
+
+```{r}
+arhus_temp <- climate_tsibble %>% filter(City == "Århus", Country == "Denmark")
+
+arhus_temp
+```
+
+## Plot for Average temperature of Arhus, Denmark
+
+### Decomposing the time series into trend, seasonal and noise
+
+**Convert to ts and decompose (trend,seasonal and noise)**
+
+```{r}
+arhus_ts <- ts(arhus_temp$AverageTemperature, frequency = 6) 
+decomposed <- stl(arhus_ts, s.window = "periodic") 
+autoplot(decomposed)
+```
+
+### Observations
+
+1.  The trend component shows some variability and occasional sharp changes, which might indicate specific years where average temperatures were significantly different from the norm.
+
+2.  The residuals show some spikes, indicating months where the actual temperatures were significantly different from what would be predicted by the seasonal and trend components alone.
+
+```{r}
+ggplot(arhus_temp, aes(x = dt, y = AverageTemperature)) + geom_line(linewidth = 0.5, alpha = 0.8) + 
+  # Reduced line size for clarity, adjust opacity 
+  geom_smooth(se = FALSE, color = "blue", method = "loess") + 
+  # Smoothed trend line 
+  labs( title = "Temperature Trend for Århus, Denmark", x = "Date", y = "Average Temperature (°C)" ) + 
+  theme_minimal() # Cleaner theme
+```
+
+### Observation
+
+1.  Displays a temperature trend for Århus, Denmark, visualized using a plot created with **ggplot**.
+
+2.  The smooth blue line provides a general trend, showing how the average temperature changes across the dates. This actually the result of the smoothing operation applied, denoting **almost no trend**.
+
+# Model building
+
+**Extracting only the AverageTemperature column and converting it to a ts object**
+
+```{r}
+arhus_ts <- ts(arhus_temp$AverageTemperature, frequency = 12) # assuming monthly data
+arhus_ts
+```
+
+### Now fitting the ARIMA model
+
+```{r}
+fit_arima <- auto.arima(arhus_ts)
+summary(fit_arima)
+```
+
+### Inferences
+
+1.  ARIMA(1,0,0) means AR(1) model with no differencing (d = 0) and no MA component (q = 0) implies that each value in the series is directly influenced by its immediate predecessor.
+2.  (1,1,0)[12] describes the seasonal component of the model, indicating 1 seasonal AR term, 1 order of seasonal differencing (d = 1), and no seasonal MA, across a seasonal period of 12.
+3.  No significant linear trend in the data as the drift coefficient is 0.
+4.  Positive correlation with previous value in the series due to positive significant value of ar1 coefficient.
+5.  Negative correlation with the previous season in the series due to negative significant value of sar1 coefficient.
+6.  High values of negative log likelihood and AIC errors has been observed.
+
+### Fit the Exponential Smoothing model
+
+```{r}
+fit_ets <- ets(arhus_ts) #ets - error trend seasonality
+summary(fit_ets)
+```
+
+### Inferences
+
+1.  ETS(A, Ad, A) - Error (A) is additive error component, Trend(AD) is additive damped trend i.e. trend decreases over time and Seasonality (A) is the additive seasonal component.
+2.  Alpha is significant implying that the level of the series is quite responsive to the changes in the observation. 3, Beta is very small suggesting that model places very less weight on updating the trend.
+3.  Gamma is also very small showing less frequent updates on the seasonal pattern.
+4.  Phi (damping factor) close to 1, suggest slight damping.
+5.  The values of AIC errors are even higher than ARIMA models, showing a worse fit than that, the model might not be able to explain the variability in the data more efficiently.
+6.  Since the AIC errors are high and sigma is very low, might indicate overfitting.
+
+### Evaluation
+
+```{r}
+train <- head(arhus_ts, round(length(arhus_ts) * 0.8)) 
+test <- tail(arhus_ts, round(length(arhus_ts) * 0.2))
+```
+
+**Forecast on test set**
+
+```{r}
+forecast_arima <- forecast(fit_arima, h = length(test)) 
+forecast_ets <- forecast(fit_ets, h = length(test))
+```
+
+```{r}
+test_values <- if (is.data.frame(test)) {
+  test$AverageTemperature 
+} else {
+  as.numeric(test) 
+}
+test_values
+```
+
+### Calculate RMSE
+
+```{r}
+rmse_arima <- sqrt(mean((forecast_arima$mean - test_values)^2))
+rmse_ets <- sqrt(mean((forecast_ets$mean - test_values)^2))
+```
+
+```{r}
+print(paste("RMSE for ARIMA: ", rmse_arima)) 
+print(paste("RMSE for ETS: ", rmse_ets))
+```
+
+Lesser RMSE value for ARIMA in comparison to ETS.
+
+# Forecasting
+
+### ARIMA forecast
+
+```{r}
+future_forecast <- forecast(fit_arima, h = 30) 
+autoplot(future_forecast)
+```
+
+### ETS forecast
+
+```{r}
+future_ets_forecast <- forecast(fit_ets, h = 30) 
+autoplot(future_ets_forecast)
+```
