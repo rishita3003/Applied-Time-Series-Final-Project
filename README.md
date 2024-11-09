@@ -1,6 +1,7 @@
 # Applied Time Series Analysis - Final Project
 
 This repository contains the final project for the course on Applied Time Series Analysis. The project showcases an in-depth exploration of time series data analysis, modeling, and forecasting techniques applied to real-world datasets.
+The topic chosen for this project is - Climate Change : Earth Surface Temperature
 
 ## Project Overview
 
@@ -10,10 +11,8 @@ The objective of this project is to leverage time series analysis techniques to 
 
 The repository is organized as follows:
 
-- `data/`: Contains the dataset used for analysis.
-- `notebooks/`: Jupyter notebooks detailing data preprocessing, EDA, modeling, and forecasting.
-- `scripts/`: Python scripts for data processing and model implementation.
-- `results/`: Visualizations, forecasts, and evaluation metrics.
+- `data/`: Contains the dataset used for analysis. Dataset link : [Temperature Data by city](https://www.kaggle.com/datasets/berkeleyearth/climate-change-earth-surface-temperature-data) 
+- `rmd/`: R language for data processing and model implementation. Visualizations, forecasts, and evaluation metrics.
 - `README.md`: Overview of the project.
 
 ## Key Features
